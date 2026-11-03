@@ -25,7 +25,7 @@ that owns Minecraft: Java Edition.
 Native mods are **not sandboxed**: the code runs with your rights, which is why the launcher asks you to trust it.
 The whole mod is in [`native/mixins/spider_man/`](native/mixins/spider_man/); read it first. It is made for one
 Horizon Nightly (pinned in [`native/compatibility.json`](native/compatibility.json)), and the launcher builds exactly
-that version, in an instance of its own. Tested on macOS. More in
+that version, in an instance of its own. Tested on macOS and Windows 11. More in
 [native/README.md](native/README.md#install-with-the-horizon-launcher).
 
 ## Controls

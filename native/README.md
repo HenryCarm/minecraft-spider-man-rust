@@ -39,7 +39,7 @@ bounded, and a panic in the mod skips its tick (it starts over) instead of crash
 ## Install with the Horizon launcher
 
 Native mods are not sandboxed: the mod's code runs with your rights, so read `mixins/spider_man/` first. Tested on
-macOS with launcher 0.2.31.
+macOS and Windows 11 with launcher 0.2.31–0.2.37.
 
 - **From the registry**, once listed: Mods > search "Spider-Man" > Install.
 - **From GitHub**: Mods > Add from GitHub with `https://github.com/wyddy7/minecraft-spider-man-rust` (its latest
@@ -50,7 +50,9 @@ macOS with launcher 0.2.31.
 
 The launcher prepares the pinned Nightly's resources from your own Minecraft 26.3 if it hasn't
 (`horizon-launcher prepare --version <it>`), then builds; the first build downloads its own Rust and Horizon's
-source and takes a few minutes. Press F5 for third person, hold R and jump.
+source and takes a few minutes (about 27 on a low-power Windows laptop). Preparing needs Minecraft 26.3: sign in
+with the Microsoft account that owns it and the launcher downloads it (and its Java); without that it needs Java 25
+on the PATH. Tested on macOS and Windows 11. Press F5 for third person, hold R and jump.
 
 ## Build the shipped mod from source
 
