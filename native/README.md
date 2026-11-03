@@ -69,6 +69,31 @@ uv run --python 3.12 python native/tools/package.py   # native/target/spider_man
 The client is printed at the end; run it with your prepared resources (`--resources`). Players use the launcher
 instead (above).
 
+## Release a version
+
+1. Bump `version` in `dev/mixins/spidey-socket/horizon-mixin.toml` and add a CHANGELOG section.
+2. `tools/release.sh` (regenerates `mixins/spider_man/` and builds it), then play it: swing, a wall run, the mod's
+   page in Options > Mods.
+3. `uv run --python 3.12 python native/tools/package.py` writes `target/spider_man-<version>.hnmod`;
+   `cargo horizon-mod check <it>` (the `cargo-horizon-mod` built from the pinned Horizon) must pass.
+4. Pull request to `main`, then a GitHub release (not a pre-release) tagged `v<version>` with the `.hnmod` as its
+   asset. Horizon's registry lists this repository by its releases (`mods/spider_man.toml` in horizon-mods names the
+   repository), so the release is the update: no form. The registry page is `horizon-registry.toml` as of the
+   newest release's tag.
+5. Check the player's path: `horizon-launcher mods add-github https://github.com/wyddy7/minecraft-spider-man-rust
+   --trust-native-code`, then `horizon-launcher native-build --trust-native-code`, then play.
+
+## Move to a newer Horizon
+
+1. Pick a Nightly and its source tag (`nightly-source/<date>-<short>` in Horizon). The horizon-mixins revision is the
+   launcher's own at that commit: `MIXINS_REV` in `launcher/src/native_mods.rs`. Check out horizon-mixins there.
+2. Write both revisions into `compatibility.json` (and the `game.rs` SHA-256 of that commit; `mixin_schema` as the
+   template's). Check that every hook target in `dev/mixins/spidey-socket/horizon-mixin.toml` still exists, and look
+   for new hook points in `crates/horizon-client/src/game/native_hooks.rs` that could replace a hook.
+3. `tools/release.sh` until it builds; then `tools/socket-commit.sh` and `tools/dev-build.sh` for the development
+   loop on the same commit (and pin `dev/compatibility.json`'s horizon-mixins revision to the same one).
+4. Play both builds, then release as above.
+
 ## Develop with live reload
 
 ```sh

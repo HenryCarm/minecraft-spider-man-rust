@@ -18,21 +18,28 @@ How an agent works on this mod. The README says what it is and how to build it.
 
 ## Building and running
 
-- Horizon (the `motion-api` branch) lives in `../horizon`. The mod: `../horizon/target/fast/cargo-horizon-mod
-  horizon-mod build`. A game launched with `--dev-mod` reloads it on every rebuild.
-- A Horizon change needs `cargo build --profile fast -p horizon-client --features mods` and a relaunch.
-- Native: `native/tools/dev-build.sh` once, then `native/tools/watch.sh` and a dev client with `HORIZON_DEV_PLUG`
-  set: edits to `src/` show up in about a second. After changing the hooks, run `native/tools/release.sh` so the
-  shipped bundle follows, and check both builds swing (jump + hold R gives the same peak height).
-- `native/` clippy covers only its own crates (`-p horizon-dev-reload -p horizon-mod-sdk`): `src/` is linted by its
-  wasm build.
+- The native mod is what ships (Horizon's registry, Mods > Add from GitHub). Its hooks' source is
+  `native/dev/mixins/spidey-socket/`; `native/tools/release.sh` generates `native/mixins/spider_man/` from it and
+  `src/`, stages it on the pinned Horizon and builds it. Never edit the generated bundle.
+- Development: `native/tools/dev-build.sh` once per pin, then `native/tools/watch.sh` and a dev client with
+  `HORIZON_DEV_PLUG` set: edits to `src/` show up in about a second. After changing the hooks, run
+  `native/tools/release.sh` so the shipped bundle follows, and check both builds swing.
+- Horizon (`../horizon`) and horizon-mixins (`../horizon-mixins`) are expected beside this repository; horizon-mixins
+  sits at the revision `native/compatibility.json` names. `HORIZON_TARGET=<dir>` reuses a warm Cargo target (a
+  Horizon build is several GB).
+- A new version, or a move to a newer Horizon Nightly: `native/README.md` § Release a version and § Move to a newer
+  Horizon. A release is a GitHub release with the `.hnmod`; the registry reads it from there.
+- `native/` clippy covers only its own crates (`-p horizon-dev-reload --features host -p horizon-mod-sdk`).
+- The WebAssembly build (0.1.0, Horizon's unmerged `motion` branch) is history: README § WebAssembly build.
 
 ## Testing
 
 - Only in test worlds (a city map, a flat test ground), never in a personal survival world. If the game is open
   somewhere else, close it and relaunch in a test world.
 - After every launch press F5 once: checks and screenshots are taken in third person.
-- Drive the game with `horizon-ctl key/look/chat/screenshot`. The mod's commands go through `chat`
+- Test from known spots (a swing take and a wall run up a tower, kept with the test world), not by probing the map.
+- Test in a copy of a test world: a newer Horizon may upgrade the save.
+- Drive the game with `horizon-ctl key/look/chat/screenshot` (the one built with the client: `horizon-ctl` beside it). The mod's commands go through `chat`
   (`/swingmode debug`); `horizon-ctl command` goes straight to the server and the mod never sees it.
 - Before driving the game, check nobody is playing: `horizon-ctl events` shows screens opened by someone else.
 - After any pose change: `/swingmode debug` shows `posed 0` once standing, or the game's own animations stay off.
