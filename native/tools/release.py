@@ -221,6 +221,9 @@ def main():
     (out / f"{MODULE}.rs").write_text(module)
     manifest_text = manifest(dev / "horizon-mixin.toml", args.horizon_revision)
     (out / "horizon-mixin.toml").write_text(manifest_text)
+    # Other modules' sources (the view turn, kept in Horizon's render crate) go as they are.
+    for source in sorted(set(re.findall(r'^source = "([\w.]+)"$', manifest_text, flags=re.M)) - {f"{MODULE}.rs"}):
+        shutil.copy(dev / source, out / source)
     for helper in sorted(set(re.findall(r'^helper = "([\w.]+)"$', manifest_text, flags=re.M))):
         text = (dev / helper).read_text().replace("crate::game::spidey_socket::", f"{BASE}::")
         (out / helper).write_text(text)

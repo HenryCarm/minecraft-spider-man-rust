@@ -1,10 +1,17 @@
 [mod]
 id = "spidey-socket"
-version = "0.1.0"
+version = "0.2.0"
 priority = 100
 
 [compatibility]
-horizon_revision = "f1d4c8fd29bcb4149fc409f5170b63233a205bc8"
+horizon_revision = "0722c1055d0af6756dd0eeb8d7880747008d633f"
+
+[[module]]
+id = "view-turn"
+file = "crates/horizon-client-render/src/camera.rs"
+name = "spider_man_view"
+source = "view_turn.rs"
+visibility = "pub"
 
 [[module]]
 id = "socket"
@@ -74,10 +81,14 @@ bindings = [
 
 [[injection]]
 id = "turned-view"
-kind = "RETURN"
-target = "horizon_client::game::fov::Game<'_>::spinning_matrix"
+kind = "HEAD"
+cancellable = true
+target = "horizon_client_render::camera::view_matrix"
 helper = "view.rs"
-bindings = [{ name = "value", ty = "glam::Mat4", value = "$value" }]
+bindings = [
+  { name = "yaw", ty = "f32", value = "yaw" },
+  { name = "pitch", ty = "f32", value = "pitch" },
+]
 
 # Horizon's native hook points (stable across releases): commands, the mod's
 # row and settings page in Options > Mods, its keys, the camera shake.

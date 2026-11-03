@@ -86,27 +86,6 @@ static SHARED: Mutex<Shared> = Mutex::new(Shared {
     align_then: None,
 });
 
-/// While the wall camera turns the whole view: what turns the game's upright
-/// view (`view_matrix` of the yaw and pitch `camera_view` gave) into the
-/// turned one. The game multiplies its view pose (`bob * spin`) between the
-/// lens and the view, for the drawn world and the terrain's culling alike;
-/// `turned_view` puts this into `spin`, so the frame is drawn from the turned
-/// view. (The view matrix itself lives in Horizon's render crate, which a
-/// native mod's module can't reach.)
-static VIEW_FIX: Mutex<Option<glam::Mat4>> = Mutex::new(None);
-
-fn set_view_fix(fix: Option<glam::Mat4>) {
-    *VIEW_FIX.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = fix;
-}
-
-/// This frame's turn of the view, identity while upright.
-pub fn view_fix() -> glam::Mat4 {
-    VIEW_FIX
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .unwrap_or(glam::Mat4::IDENTITY)
-}
-
 fn shared<T>(f: impl FnOnce(&mut Shared) -> T) -> T {
     let mut s = SHARED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     f(&mut s)
@@ -265,7 +244,10 @@ fn cast(game: &super::Game<'_>, rays: &[Ray], eye: [f64; 3], feet: [f64; 3]) -> 
 pub fn tick(game: &mut super::Game<'_>) {
     // Turned off in Options > Mods: the game as if the mod weren't there.
     if !game.native_on(ID) {
-        shared(clear);
+        shared(|s| {
+            clear(s);
+            s.commands.clear();
+        });
         wind(game, 0.0);
         return;
     }
@@ -429,17 +411,24 @@ pub fn command(game: &mut super::Game<'_>, command: &str, ran: &mut bool) {
 
 /// The chat box lists, colours and completes the mod's commands.
 pub fn commands(game: &super::Game<'_>, commands: &mut Vec<&'static str>) {
-    if game.native_on(ID) {
+    if game.native_on(ID) && local(game) {
         commands.extend(COMMANDS);
     }
 }
 
-/// The player's key for each of the mod's keys (its page in Options > Mods).
+/// The player's key for each of the mod's keys (its page in Options > Mods),
+/// as the physical key `Input::keys` names (`KeyR`, `Tab`, `ArrowUp`), through
+/// the game's own table of key names. A mouse button chosen there has no key:
+/// the mod's key stays unpressed.
 fn bindings(game: &super::Game<'_>) -> Vec<(String, String)> {
     horizon_dev_reload::current()
         .keys
         .iter()
-        .map(|k| (k.name.clone(), game.native_mod_key(ID, &k.name, &k.default)))
+        .map(|k| {
+            let name = game.native_mod_key(ID, &k.name, &k.default);
+            let key = horizon_client_input::keybinds::key_code(&name).map_or(name, |code| format!("{code:?}"));
+            (k.name.clone(), key)
+        })
         .collect()
 }
 
@@ -496,7 +485,10 @@ pub fn settings_click(game: &super::Game<'_>, mod_id: &str, button: usize) {
 /// The mod's camera shake, added to the other mods' (Horizon scales the sum
 /// by Distortion Effects and bounds it).
 pub fn camera_shake(game: &super::Game<'_>, shake: &mut super::native_hooks::NativeShake) {
-    if !game.native_on(ID) || !local(game) {
+    // Only on the mod's chase camera, as the rumble always was: not in first
+    // person nor on a fixed view.
+    let chase = shared(|s| matches!(s.camera, Some(Camera::Chase(_))));
+    if !chase || game.camera_type.first_person() || !game.native_on(ID) || !local(game) {
         return;
     }
     let (yaw, pitch) = shake_offset();
@@ -854,7 +846,7 @@ pub fn camera_view(
     game: &mut super::Game<'_>,
     partial: f32,
 ) -> ControlFlow<Option<(glam::DVec3, f32, f32)>> {
-    set_view_fix(None);
+    horizon_client_render::camera::spider_man_view::set(None);
     let look_from = |from: glam::DVec3, to: glam::DVec3| {
         let d = (to - from).normalize_or_zero();
         let yaw = (-d.x).atan2(d.z).to_degrees() as f32;
@@ -977,10 +969,12 @@ pub fn camera_view(
                     (rotation * glam::DVec3::Y).as_vec3(),
                     (-look).as_vec3(),
                 );
+                // The game builds every view of this frame (the world, its
+                // culling, the sky, reflections) from these angles; the
+                // render crate's `view_matrix` gives the turned view for them.
                 let (at, yaw, pitch) = look_from(at, at + look);
-                let view = glam::Mat4::from_quat(glam::Quat::from_mat3(&basis).conjugate());
-                let upright = horizon_client::camera::view_matrix(yaw, pitch);
-                set_view_fix(Some(view * upright.inverse()).filter(|m| m.is_finite()));
+                let q = glam::Quat::from_mat3(&basis);
+                horizon_client_render::camera::spider_man_view::set(q.is_finite().then(|| (yaw, pitch, q.to_array())));
                 (at, yaw, pitch)
             } else {
                 (at, yaw, pitch)

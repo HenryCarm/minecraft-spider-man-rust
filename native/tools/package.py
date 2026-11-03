@@ -21,7 +21,10 @@ GAME = "26.3"
 
 def main():
     compat = json.loads((NATIVE / "compatibility.json").read_text())
-    bundle = next(p for p in (NATIVE / "mixins").iterdir() if (p / "horizon-mixin.toml").is_file())
+    bundles = sorted(p for p in (NATIVE / "mixins").iterdir() if (p / "horizon-mixin.toml").is_file())
+    if len(bundles) != 1:
+        sys.exit(f"expected one bundle in native/mixins/, found {[b.name for b in bundles]}")
+    bundle = bundles[0]
     source = tomllib.loads((bundle / "horizon-mixin.toml").read_text())
     mod_id, version = source["mod"]["id"], source["mod"]["version"]
     if source["compatibility"]["horizon_revision"] != compat["horizon_revision"]:

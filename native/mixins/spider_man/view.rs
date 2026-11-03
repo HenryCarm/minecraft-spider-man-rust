@@ -1,4 +1,7 @@
-// The wall camera's turn of the whole view, put into the game's view pose.
-fn turned_view(value: glam::Mat4) -> glam::Mat4 {
-    value * crate::game::spider_man::view_fix()
+// The wall camera's whole orientation for the frame's angles, else the game's.
+fn turned_view(yaw: f32, pitch: f32) -> std::ops::ControlFlow<glam::Mat4> {
+    match crate::camera::spider_man_view::view(yaw, pitch) {
+        Some(view) => std::ops::ControlFlow::Break(view),
+        None => std::ops::ControlFlow::Continue(()),
+    }
 }

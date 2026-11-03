@@ -39,6 +39,8 @@ static HOST: Mutex<Host> = Mutex::new(Host {
         camera: None,
         wind: 0.0,
         panel: None,
+        keys: Vec::new(),
+        settings: Vec::new(),
     },
 });
 
