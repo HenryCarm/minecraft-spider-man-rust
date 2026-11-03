@@ -3,7 +3,7 @@
 // WebAssembly host. A mod written for the SDK builds unchanged as a plug.
 // Reads see this tick's snapshot; sets apply after the tick, as in the SDK.
 
-use horizon_dev_reload::abi::{Input, Output, Set};
+use horizon_dev_reload::abi::{Input, ModKey, Output, SettingButton, Set, UiEvent};
 use std::cell::RefCell;
 
 thread_local! {
@@ -11,8 +11,8 @@ thread_local! {
     static OUTPUT: RefCell<Output> = RefCell::new(Output::default());
     /// Physical keys held last tick, to turn into key events.
     static HELD: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
-    /// The mod's registered keys: name and default physical key.
-    static KEYS: RefCell<Vec<(String, String)>> = const { RefCell::new(Vec::new()) };
+    /// The mod's registered keys: name, label and default vanilla key.
+    static KEYS: RefCell<Vec<(String, String, String)>> = const { RefCell::new(Vec::new()) };
     static INIT_FAILED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
@@ -208,13 +208,28 @@ pub mod input {
         pub label: String,
         pub down: bool,
     }
-    /// Keys use their default binding: the plug has no Controls rows yet.
-    pub fn register_key(name: &str, _label: &str, key: &str) -> Result<(), String> {
-        super::KEYS.with_borrow_mut(|keys| {
+    /// A key of the mod's, listed on its page in Options > Mods, where the
+    /// player can choose another; `key` is its default (`key.keyboard.r`).
+    pub fn register_key(name: &str, label: &str, key: &str) -> Result<(), String> {
+        let keys = super::KEYS.with_borrow_mut(|keys| {
             keys.retain(|k| k.0 != name);
-            keys.push((name.into(), super::physical(key)));
+            keys.push((name.into(), label.into(), key.into()));
+            keys.iter()
+                .map(|(name, label, default)| super::ModKey {
+                    name: name.clone(),
+                    label: label.clone(),
+                    default: default.clone(),
+                })
+                .collect()
         });
+        super::output(|o| o.keys = super::Set::To(keys));
         Ok(())
+    }
+
+    /// The physical key `name` is on: the player's choice, else its default.
+    fn bound(name: &str, default: &str) -> String {
+        let chosen = super::input(|i| i.bindings.iter().find(|b| b.0 == name).map(|b| b.1.clone()));
+        super::physical(chosen.as_deref().unwrap_or(default))
     }
     /// This tick's presses and releases of the registered keys.
     pub fn poll() -> Vec<Event> {
@@ -222,7 +237,8 @@ pub mod input {
         let before = super::HELD.with_borrow_mut(|held| std::mem::replace(held, now.clone()));
         super::KEYS.with_borrow(|keys| {
             let mut events = Vec::new();
-            for (name, code) in keys {
+            for (name, _, default) in keys {
+                let code = &bound(name, default);
                 match (before.contains(code), now.contains(code)) {
                     (false, true) => events.push(Event::KeyDown(name.clone())),
                     (true, false) => events.push(Event::KeyUp(name.clone())),
@@ -300,8 +316,21 @@ pub mod ui {
         Text(TextWidget),
         Button(ButtonWidget),
     }
-    /// No settings page through the socket yet.
-    pub fn set_settings(_widgets: &[Widget]) {}
+    /// The mod's page in Options > Mods: its buttons, each with its label
+    /// (Horizon's page shows buttons only; text lines are left out).
+    pub fn set_settings(widgets: &[Widget]) {
+        let buttons = widgets
+            .iter()
+            .filter_map(|w| match w {
+                Widget::Button(b) => Some(super::SettingButton {
+                    id: b.id,
+                    label: b.label.clone(),
+                }),
+                Widget::Text(_) => None,
+            })
+            .collect();
+        super::output(|o| o.settings = super::Set::To(buttons));
+    }
 }
 
 /// Runs one tick of the mod `T`, its first after a (re)load starting with
@@ -322,6 +351,15 @@ pub fn run_typed<T: Mod>(slot: &RefCell<Option<T>>, input: &Input) -> Output {
         }
     }
     if let Some(m) = slot.as_mut() {
+        for event in &input.ui {
+            match event {
+                UiEvent::Opened => m.ui_settings_opened(),
+                UiEvent::Select(id) => m.ui_select(*id, 0),
+            }
+        }
+        if input.ui_only {
+            return OUTPUT.with_borrow_mut(std::mem::take);
+        }
         for (name, args) in commands {
             match m.command(&name, &args) {
                 Ok(Some(reply)) => chat::show(&reply),

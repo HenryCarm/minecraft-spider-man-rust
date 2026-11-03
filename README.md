@@ -18,7 +18,7 @@ Tested on macOS.
 horizon-launcher update        # then restart the launcher
 horizon-launcher prepare       # the game's resources, from your Minecraft install
 git clone https://github.com/wyddy7/minecraft-spider-man-rust
-horizon-launcher native-build minecraft-spider-man-rust/native/mixins/spider-man --trust-native-code
+horizon-launcher native-build minecraft-spider-man-rust/native/mixins/spider_man --trust-native-code
 ```
 
 The first build downloads the launcher's own Rust (about 450 MB, once) and Horizon's source, then compiles
@@ -26,7 +26,7 @@ the game: on an Apple M5 it took under 5 minutes, about 3 GB of disk in all. It 
 instance in the launcher: pick it, press Play, press **F5** for third person, find something tall, hold **R** and jump.
 
 Native mods are experimental in Horizon and **not sandboxed**: the code runs with your rights, which is why the
-launcher asks for `--trust-native-code`. The whole mod is in [`native/mixins/spider-man/`](native/mixins/spider-man/);
+launcher asks for `--trust-native-code`. The whole mod is in [`native/mixins/spider_man/`](native/mixins/spider_man/);
 read it first. The mod is made for Horizon v0.2.96, and the launcher builds exactly that version from source,
 whatever version you play otherwise, in an instance of its own. More in
 [native/README.md](native/README.md#install-with-the-horizon-launcher).

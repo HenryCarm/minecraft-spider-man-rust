@@ -1,0 +1,22 @@
+# The mod's page in Horizon's registry (horizon-rust/horizon-mods): read from the newest release's tag.
+name = "Spider-Man"
+summary = "Web swinging, zips, wall running and parkour, tuned against the console games' feel."
+description = """
+Swing through a city on webs. Hold **R** and jump: a web catches the nearest anchor ahead and you swing on it, let go
+to fly on, catch the next one.
+
+**Controls** (change them on the mod's page in Options > Mods):
+- **R**: hold to swing; on the ground, a parkour run, faster with **W**; on a wall, a wall run
+- **Z**: hold to zip to where you look
+- **Space** on a web: pump for speed; let go to jump off
+- **A / D** while swinging: lean to the side
+- **F5**: third person, where the poses, the web lines and the chase camera show
+
+**Settings** (Options > Mods > Spider-Man): how long a web flies before it bites. `/swingmode on|off|delay|view|debug`
+in chat does the same and more.
+
+Works in your own worlds: single player, or a LAN world you host. On other servers it stays off.
+
+Fan-made, not affiliated with Marvel, Sony or Insomniac Games."""
+authors = ["wyddy7"]
+license = "MIT"

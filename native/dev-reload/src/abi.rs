@@ -119,6 +119,38 @@ pub struct Input {
     pub keys: Vec<String>,
     /// Chat commands for the plug since last tick: name, then the rest.
     pub commands: Vec<(String, String)>,
+    /// The player's key for each of the mod's keys: name, then its vanilla
+    /// name (`key.keyboard.r`), as chosen on the mod's page in Options > Mods.
+    pub bindings: Vec<(String, String)>,
+    /// The mod's settings page was opened or one of its buttons clicked.
+    pub ui: Vec<UiEvent>,
+    /// Only the settings page: the mod starts if it hasn't, takes `ui` and
+    /// is not ticked (the page answers at once, also from the title screen).
+    pub ui_only: bool,
+}
+
+/// What happened on the mod's settings page.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum UiEvent {
+    Opened,
+    /// The button with this id.
+    Select(u32),
+}
+
+/// One of the mod's keys, as Options > Mods lists it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ModKey {
+    pub name: String,
+    pub label: String,
+    /// Its vanilla name (`key.keyboard.r`).
+    pub default: String,
+}
+
+/// A button on the mod's settings page.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct SettingButton {
+    pub id: u32,
+    pub label: String,
 }
 
 /// What the plug asks of the game after a tick. One-tick requests
@@ -144,6 +176,10 @@ pub struct Output {
     pub chat: Vec<String>,
     /// The mod's HUD panel lines (text, 0xRRGGBB); none clears it.
     pub panel: Set<Option<Vec<(String, u32)>>>,
+    /// The mod's keys.
+    pub keys: Set<Vec<ModKey>>,
+    /// The settings page's buttons.
+    pub settings: Set<Vec<SettingButton>>,
 }
 
 /// The sticky part of every output so far: what per-frame hooks draw.
@@ -155,6 +191,8 @@ pub struct Current {
     pub camera: Option<Camera>,
     pub wind: f32,
     pub panel: Option<Vec<(String, u32)>>,
+    pub keys: Vec<ModKey>,
+    pub settings: Vec<SettingButton>,
 }
 
 impl Current {
@@ -170,6 +208,8 @@ impl Current {
         set(&mut self.camera, &out.camera);
         set(&mut self.wind, &out.wind);
         set(&mut self.panel, &out.panel);
+        set(&mut self.keys, &out.keys);
+        set(&mut self.settings, &out.settings);
     }
 }
 

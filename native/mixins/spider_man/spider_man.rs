@@ -12,11 +12,16 @@
 // the mod that are not finite are dropped, and a panic in it stops the mod for
 // that tick, not the game.
 
-use horizon_dev_reload::abi::{Camera, Input, Player, Pose, Ray, State, Vec3};
+use horizon_dev_reload::abi::{Camera, Input, Player, Pose, Ray, State, UiEvent, Vec3};
 use std::ops::ControlFlow;
 use std::sync::Mutex;
 use std::time::Instant;
 
+/// The mod's id in Options > Mods: its keys' lines and its switch.
+pub const ID: &str = "spider_man";
+/// Its row there.
+const TITLE: &str = "Spider-Man";
+const DESCRIPTION: &str = "Web swinging, zips, wall running and parkour. Hold R and jump; F5 for third person.";
 /// Rays cast a tick; the rest find nothing.
 const RAY_BUDGET: usize = 256;
 /// How far from the player a fixed camera may stand, in blocks.
@@ -80,6 +85,27 @@ static SHARED: Mutex<Shared> = Mutex::new(Shared {
     manual: None,
     align_then: None,
 });
+
+/// While the wall camera turns the whole view: what turns the game's upright
+/// view (`view_matrix` of the yaw and pitch `camera_view` gave) into the
+/// turned one. The game multiplies its view pose (`bob * spin`) between the
+/// lens and the view, for the drawn world and the terrain's culling alike;
+/// `turned_view` puts this into `spin`, so the frame is drawn from the turned
+/// view. (The view matrix itself lives in Horizon's render crate, which a
+/// native mod's module can't reach.)
+static VIEW_FIX: Mutex<Option<glam::Mat4>> = Mutex::new(None);
+
+fn set_view_fix(fix: Option<glam::Mat4>) {
+    *VIEW_FIX.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = fix;
+}
+
+/// This frame's turn of the view, identity while upright.
+pub fn view_fix() -> glam::Mat4 {
+    VIEW_FIX
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .unwrap_or(glam::Mat4::IDENTITY)
+}
 
 fn shared<T>(f: impl FnOnce(&mut Shared) -> T) -> T {
     let mut s = SHARED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -237,6 +263,12 @@ fn cast(game: &super::Game<'_>, rays: &[Ray], eye: [f64; 3], feet: [f64; 3]) -> 
 
 /// Every client tick, before the level ticks and the player moves.
 pub fn tick(game: &mut super::Game<'_>) {
+    // Turned off in Options > Mods: the game as if the mod weren't there.
+    if !game.native_on(ID) {
+        shared(clear);
+        wind(game, 0.0);
+        return;
+    }
     let local = local(game);
     let playing = game.screen == super::Screen::Playing;
     let mut input = Input {
@@ -247,6 +279,7 @@ pub fn tick(game: &mut super::Game<'_>) {
             Vec::new()
         },
         commands: shared(|s| std::mem::take(&mut s.commands)),
+        bindings: bindings(game),
         ..Input::default()
     };
     if local
@@ -381,23 +414,94 @@ pub fn after_send_state(game: &mut super::Game<'_>) {
     }
 }
 
-/// The mod's chat commands (`/swingmode …`) go to the mod, not the server,
-/// in the player's own world only. `typed`: from the chat box (kept in its
-/// history); else a line sent another way (the control socket, a clicked
-/// command), which typed chat also passes through on a server.
-pub fn chat_input(game: &mut super::Game<'_>, message: &str, typed: bool) -> ControlFlow<()> {
-    let Some(command) = message.trim().strip_prefix('/') else {
-        return ControlFlow::Continue(());
-    };
+/// The mod's chat commands (`/swingmode …`, typed or clicked, without the
+/// slash) go to the mod, not the server, in the player's own world only;
+/// elsewhere the server gets them as always.
+pub fn command(game: &mut super::Game<'_>, command: &str, ran: &mut bool) {
+    let command = command.trim();
     let (name, args) = command.split_once(' ').unwrap_or((command, ""));
-    if !COMMANDS.contains(&name) || horizon_dev_reload::loads() == 0 || !local(game) {
-        return ControlFlow::Continue(());
-    }
-    if typed {
-        game.ui.chat.add_recent(message);
+    if !COMMANDS.contains(&name) || !game.native_on(ID) || horizon_dev_reload::loads() == 0 || !local(game) {
+        return;
     }
     shared(|s| s.commands.push((name.to_owned(), args.trim().to_owned())));
-    ControlFlow::Break(())
+    *ran = true;
+}
+
+/// The chat box lists, colours and completes the mod's commands.
+pub fn commands(game: &super::Game<'_>, commands: &mut Vec<&'static str>) {
+    if game.native_on(ID) {
+        commands.extend(COMMANDS);
+    }
+}
+
+/// The player's key for each of the mod's keys (its page in Options > Mods).
+fn bindings(game: &super::Game<'_>) -> Vec<(String, String)> {
+    horizon_dev_reload::current()
+        .keys
+        .iter()
+        .map(|k| (k.name.clone(), game.native_mod_key(ID, &k.name, &k.default)))
+        .collect()
+}
+
+/// The settings page only: the mod starts if it hasn't (its keys and
+/// buttons are known from then on) and takes `ui`, without a tick.
+fn page(game: &super::Game<'_>, ui: Vec<UiEvent>) {
+    let input = Input {
+        tick: game.ticks,
+        bindings: bindings(game),
+        ui,
+        ui_only: true,
+        ..Input::default()
+    };
+    let _ = horizon_dev_reload::tick(&input);
+}
+
+/// The mod's row in Options > Mods, with its keys.
+pub fn listed(game: &super::Game<'_>, mods: &mut Vec<super::native_hooks::NativeMod>) {
+    if horizon_dev_reload::current().keys.is_empty() {
+        page(game, Vec::new());
+    }
+    mods.push(super::native_hooks::NativeMod {
+        id: ID.into(),
+        title: TITLE.into(),
+        description: DESCRIPTION.into(),
+        keys: horizon_dev_reload::current()
+            .keys
+            .into_iter()
+            .map(|k| [k.name, k.label, k.default])
+            .collect(),
+    });
+}
+
+/// The mod's settings page: its buttons, as the mod labels them now.
+pub fn settings(game: &super::Game<'_>, mod_id: &str, buttons: &mut Vec<String>) {
+    if mod_id != ID {
+        return;
+    }
+    page(game, vec![UiEvent::Opened]);
+    buttons.extend(horizon_dev_reload::current().settings.into_iter().map(|b| b.label));
+}
+
+/// A click on the page's `button`-th button: the mod changes and keeps the
+/// setting, and the page asks for the new labels right after.
+pub fn settings_click(game: &super::Game<'_>, mod_id: &str, button: usize) {
+    if mod_id != ID {
+        return;
+    }
+    if let Some(b) = horizon_dev_reload::current().settings.get(button) {
+        page(game, vec![UiEvent::Select(b.id)]);
+    }
+}
+
+/// The mod's camera shake, added to the other mods' (Horizon scales the sum
+/// by Distortion Effects and bounds it).
+pub fn camera_shake(game: &super::Game<'_>, shake: &mut super::native_hooks::NativeShake) {
+    if !game.native_on(ID) || !local(game) {
+        return;
+    }
+    let (yaw, pitch) = shake_offset();
+    shake.yaw += yaw;
+    shake.pitch += pitch;
 }
 
 /// Ropes: a thin strip from the hand (or where the rope says), both faces,
@@ -409,7 +513,7 @@ pub fn rope_geometry(
     out: &mut Vec<horizon_client::mesher::Vertex>,
 ) {
     let ropes = horizon_dev_reload::current().ropes;
-    let Some(p) = game.player.as_ref().filter(|_| !ropes.is_empty() && local(game)) else {
+    let Some(p) = game.player.as_ref().filter(|_| !ropes.is_empty() && game.native_on(ID) && local(game)) else {
         return;
     };
     let white = game.gui.atlas.font.white();
@@ -526,6 +630,7 @@ pub fn player_model(
             .iter()
             .any(|id| game.potions.effects.get(*id).is_some())
         || game.player.as_ref().is_none_or(|p| p.health.dead_or_dying())
+        || !game.native_on(ID)
         || !local(game)
     {
         return ControlFlow::Continue(());
@@ -581,7 +686,7 @@ pub fn player_model(
         .gui
         .atlas
         .sprites
-        .get(texture.as_str())
+        .get(&texture[..])
         .map(|r| [r.u0, r.v0, r.u1, r.v1])
     else {
         return ControlFlow::Continue(());
@@ -622,10 +727,8 @@ fn wall_turn(_game: &super::Game<'_>) -> glam::DQuat {
 /// carries a heading over): it goes into the mouse yaw and the alignment is
 /// identity again, so the game's own angles are the view.
 fn update_align(game: &mut super::Game<'_>, wall: Option<glam::DVec3>, dt: f64) -> glam::DQuat {
-    // Without the whole-view turn (a shipped mod can't set it), the view is
-    // not turned either: half a turn would unhinge the mouse and the aim.
     let to_up = match wall {
-        Some(w) if horizon_dev_reload::frame::WALL_TURN && !game.camera_type.first_person() => -w,
+        Some(w) if !game.camera_type.first_person() => -w,
         _ => glam::DVec3::Y,
     };
     let (align, twist) = shared(|s| {
@@ -751,7 +854,7 @@ pub fn camera_view(
     game: &mut super::Game<'_>,
     partial: f32,
 ) -> ControlFlow<Option<(glam::DVec3, f32, f32)>> {
-    horizon_dev_reload::frame::set_view_turn(None);
+    set_view_fix(None);
     let look_from = |from: glam::DVec3, to: glam::DVec3| {
         let d = (to - from).normalize_or_zero();
         let yaw = (-d.x).atan2(d.z).to_degrees() as f32;
@@ -765,7 +868,6 @@ pub fn camera_view(
     let Some(p) = game.player.as_ref() else {
         return ControlFlow::Continue(());
     };
-    let (shake_yaw, shake_pitch) = shake_offset();
     match camera {
         Camera::Fixed(f) => {
             drop_align();
@@ -804,7 +906,7 @@ pub fn camera_view(
                 return ControlFlow::Continue(());
             };
             let turned = turn.angle_between(glam::DQuat::IDENTITY) > 1e-4;
-            let (yaw, pitch) = (game.yaw + shake_yaw, game.pitch + shake_pitch);
+            let (yaw, pitch) = (game.yaw, game.pitch);
             let rotation = turn * orbit(yaw, pitch);
             let look = rotation * glam::DVec3::Z;
             let up = turn * glam::DVec3::Y;
@@ -875,8 +977,11 @@ pub fn camera_view(
                     (rotation * glam::DVec3::Y).as_vec3(),
                     (-look).as_vec3(),
                 );
-                horizon_dev_reload::frame::set_view_turn(Some(glam::Quat::from_mat3(&basis).to_array()));
-                look_from(at, at + look)
+                let (at, yaw, pitch) = look_from(at, at + look);
+                let view = glam::Mat4::from_quat(glam::Quat::from_mat3(&basis).conjugate());
+                let upright = horizon_client::camera::view_matrix(yaw, pitch);
+                set_view_fix(Some(view * upright.inverse()).filter(|m| m.is_finite()));
+                (at, yaw, pitch)
             } else {
                 (at, yaw, pitch)
             };
@@ -1009,6 +1114,38 @@ pub mod horizon_dev_reload {
             pub keys: Vec<String>,
             /// Chat commands for the plug since last tick: name, then the rest.
             pub commands: Vec<(String, String)>,
+            /// The player's key for each of the mod's keys: name, then its vanilla
+            /// name (`key.keyboard.r`), as chosen on the mod's page in Options > Mods.
+            pub bindings: Vec<(String, String)>,
+            /// The mod's settings page was opened or one of its buttons clicked.
+            pub ui: Vec<UiEvent>,
+            /// Only the settings page: the mod starts if it hasn't, takes `ui` and
+            /// is not ticked (the page answers at once, also from the title screen).
+            pub ui_only: bool,
+        }
+
+        /// What happened on the mod's settings page.
+        #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+        pub enum UiEvent {
+            Opened,
+            /// The button with this id.
+            Select(u32),
+        }
+
+        /// One of the mod's keys, as Options > Mods lists it.
+        #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+        pub struct ModKey {
+            pub name: String,
+            pub label: String,
+            /// Its vanilla name (`key.keyboard.r`).
+            pub default: String,
+        }
+
+        /// A button on the mod's settings page.
+        #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+        pub struct SettingButton {
+            pub id: u32,
+            pub label: String,
         }
 
         /// What the plug asks of the game after a tick. One-tick requests
@@ -1034,6 +1171,10 @@ pub mod horizon_dev_reload {
             pub chat: Vec<String>,
             /// The mod's HUD panel lines (text, 0xRRGGBB); none clears it.
             pub panel: Set<Option<Vec<(String, u32)>>>,
+            /// The mod's keys.
+            pub keys: Set<Vec<ModKey>>,
+            /// The settings page's buttons.
+            pub settings: Set<Vec<SettingButton>>,
         }
 
         /// The sticky part of every output so far: what per-frame hooks draw.
@@ -1045,6 +1186,8 @@ pub mod horizon_dev_reload {
             pub camera: Option<Camera>,
             pub wind: f32,
             pub panel: Option<Vec<(String, u32)>>,
+            pub keys: Vec<ModKey>,
+            pub settings: Vec<SettingButton>,
         }
 
         impl Current {
@@ -1060,6 +1203,8 @@ pub mod horizon_dev_reload {
                 set(&mut self.camera, &out.camera);
                 set(&mut self.wind, &out.wind);
                 set(&mut self.panel, &out.panel);
+                set(&mut self.keys, &out.keys);
+                set(&mut self.settings, &out.settings);
             }
         }
 
@@ -1096,6 +1241,8 @@ pub mod horizon_dev_reload {
         camera: None,
         wind: 0.0,
         panel: None,
+        keys: Vec::new(),
+        settings: Vec::new(),
     });
 
     /// One tick of the mod; None if it panicked (it then starts over and the
@@ -1133,15 +1280,8 @@ pub mod horizon_dev_reload {
         1
     }
 
-    /// A shipped mod keeps the game's own upright view.
-    pub const WALL_TURN: bool = false;
-
-    /// The wall camera's whole-view turn needs a crate both the game and its
-    /// library see; a shipped mod keeps the game's own view.
-    pub mod frame {
-        pub const WALL_TURN: bool = false;
-        pub fn set_view_turn(_q: Option<[f32; 4]>) {}
-    }
+    /// The wall camera turns the whole view (the game's view matrix reads it).
+    pub const WALL_TURN: bool = true;
 }
 
 pub mod horizon_mod_sdk {
@@ -1150,7 +1290,7 @@ pub mod horizon_mod_sdk {
     // WebAssembly host. A mod written for the SDK builds unchanged as a plug.
     // Reads see this tick's snapshot; sets apply after the tick, as in the SDK.
 
-    use crate::game::spider_man::horizon_dev_reload::abi::{Input, Output, Set};
+    use crate::game::spider_man::horizon_dev_reload::abi::{Input, ModKey, Output, SettingButton, Set, UiEvent};
     use std::cell::RefCell;
 
     thread_local! {
@@ -1158,8 +1298,8 @@ pub mod horizon_mod_sdk {
         static OUTPUT: RefCell<Output> = RefCell::new(Output::default());
         /// Physical keys held last tick, to turn into key events.
         static HELD: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
-        /// The mod's registered keys: name and default physical key.
-        static KEYS: RefCell<Vec<(String, String)>> = const { RefCell::new(Vec::new()) };
+        /// The mod's registered keys: name, label and default vanilla key.
+        static KEYS: RefCell<Vec<(String, String, String)>> = const { RefCell::new(Vec::new()) };
         static INIT_FAILED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     }
 
@@ -1355,13 +1495,28 @@ pub mod horizon_mod_sdk {
             pub label: String,
             pub down: bool,
         }
-        /// Keys use their default binding: the plug has no Controls rows yet.
-        pub fn register_key(name: &str, _label: &str, key: &str) -> Result<(), String> {
-            super::KEYS.with_borrow_mut(|keys| {
+        /// A key of the mod's, listed on its page in Options > Mods, where the
+        /// player can choose another; `key` is its default (`key.keyboard.r`).
+        pub fn register_key(name: &str, label: &str, key: &str) -> Result<(), String> {
+            let keys = super::KEYS.with_borrow_mut(|keys| {
                 keys.retain(|k| k.0 != name);
-                keys.push((name.into(), super::physical(key)));
+                keys.push((name.into(), label.into(), key.into()));
+                keys.iter()
+                    .map(|(name, label, default)| super::ModKey {
+                        name: name.clone(),
+                        label: label.clone(),
+                        default: default.clone(),
+                    })
+                    .collect()
             });
+            super::output(|o| o.keys = super::Set::To(keys));
             Ok(())
+        }
+
+        /// The physical key `name` is on: the player's choice, else its default.
+        fn bound(name: &str, default: &str) -> String {
+            let chosen = super::input(|i| i.bindings.iter().find(|b| b.0 == name).map(|b| b.1.clone()));
+            super::physical(chosen.as_deref().unwrap_or(default))
         }
         /// This tick's presses and releases of the registered keys.
         pub fn poll() -> Vec<Event> {
@@ -1369,7 +1524,8 @@ pub mod horizon_mod_sdk {
             let before = super::HELD.with_borrow_mut(|held| std::mem::replace(held, now.clone()));
             super::KEYS.with_borrow(|keys| {
                 let mut events = Vec::new();
-                for (name, code) in keys {
+                for (name, _, default) in keys {
+                    let code = &bound(name, default);
                     match (before.contains(code), now.contains(code)) {
                         (false, true) => events.push(Event::KeyDown(name.clone())),
                         (true, false) => events.push(Event::KeyUp(name.clone())),
@@ -1447,8 +1603,21 @@ pub mod horizon_mod_sdk {
             Text(TextWidget),
             Button(ButtonWidget),
         }
-        /// No settings page through the socket yet.
-        pub fn set_settings(_widgets: &[Widget]) {}
+        /// The mod's page in Options > Mods: its buttons, each with its label
+        /// (Horizon's page shows buttons only; text lines are left out).
+        pub fn set_settings(widgets: &[Widget]) {
+            let buttons = widgets
+                .iter()
+                .filter_map(|w| match w {
+                    Widget::Button(b) => Some(super::SettingButton {
+                        id: b.id,
+                        label: b.label.clone(),
+                    }),
+                    Widget::Text(_) => None,
+                })
+                .collect();
+            super::output(|o| o.settings = super::Set::To(buttons));
+        }
     }
 
     /// Runs one tick of the mod `T`, its first after a (re)load starting with
@@ -1469,6 +1638,15 @@ pub mod horizon_mod_sdk {
             }
         }
         if let Some(m) = slot.as_mut() {
+            for event in &input.ui {
+                match event {
+                    UiEvent::Opened => m.ui_settings_opened(),
+                    UiEvent::Select(id) => m.ui_select(*id, 0),
+                }
+            }
+            if input.ui_only {
+                return OUTPUT.with_borrow_mut(std::mem::take);
+            }
             for (name, args) in commands {
                 match m.command(&name, &args) {
                     Ok(Some(reply)) => chat::show(&reply),
