@@ -23,7 +23,7 @@ horizon-launcher native-build minecraft-spider-man-rust/native/mixins/spider-man
 
 The first build downloads the launcher's own Rust (about 450 MB, once) and Horizon's source, then compiles
 the game: on an Apple M5 it took under 5 minutes, about 3 GB of disk in all. It becomes the **Native mods**
-instance in the launcher: pick it, press Play, press **F5** for third person, find something tall, hold **R**.
+instance in the launcher: pick it, press Play, press **F5** for third person, find something tall, hold **R** and jump.
 
 Native mods are experimental in Horizon and **not sandboxed**: the code runs with your rights, which is why the
 launcher asks for `--trust-native-code`. The whole mod is in [`native/mixins/spider-man/`](native/mixins/spider-man/);
@@ -35,19 +35,20 @@ whatever version you play otherwise, in an instance of its own. More in
 
 | Input | Does |
 |---|---|
-| hold **R** | web: it flies for a moment, then a pendulum swing over the street; A/D lean the anchor to a side, W pumps. On the ground with an anchor in reach it jumps into the swing |
+| hold **R** in the air | web: it flies for a moment, then a pendulum swing over the street; A/D lean the anchor to a side, W pumps |
+| hold **R** on the ground | the parkour run (no web): with W, a run about twice the sprint, obstacles vaulted; jump (Space) or run off an edge with R still held and the web goes |
 | release **R** | let go: a boost (more on the upswing), a forward flip, a spread-eagle fall |
 | hold **Z** | zip to the crosshair (reach 250), riding an arc to the point and hanging there while Z is held; let go to hop on |
 | **Space** | on a web: held swings faster, let go jumps off · on a zip: held hauls, let go jumps off · at the zip point: launch · on a wall: kick off |
-| into a wall with **R** held | on the wall: WASD walk it like a floor, relative to the camera; sprint runs; nothing held clings; the top edge is vaulted |
-| **W** into an obstacle | parkour by its height: a step or speed vault (1 block), a hand vault (2), a run up the face (3–5); long tops are landed on and run across |
+| into a wall with **R** held | on the wall: WASD walk it like a floor, relative to the camera; R held runs (up, with no other key), so does sprint; nothing held clings; Space kicks off; the top edge is vaulted |
+| **R** + **W** into an obstacle | parkour by its height: a step or speed vault (1 block), a hand vault (2), a run up the face (3–5); long tops are landed on and run across. Without R the ground plays as vanilla |
 
 A chase camera follows the swing and shakes at speed; the wind gets louder the faster you go. Falls from a swing
 don't hurt.
 
-Chat: `/swingmode on|off` switches the mod; `delay 0..2` (how long a web flies before it bites, 0.5 by default) and
-`jump on|off` (jumping into a swing from the ground) are its settings, kept between games; `view side|front|back|off`
-gives a fixed camera for looking at the poses; `debug` prints what the mod sees.
+Chat: `/swingmode on|off` switches the mod; `delay 0..2` (how long a web flies before it bites, 0.5 by default) is its
+setting, kept between games; `view side|front|back|off` gives a fixed camera for looking at the poses; `debug` prints
+what the mod sees.
 
 It plays in single player and in a LAN world you host. On someone else's server it does nothing: it only moves the
 player where the server is yours. A city map makes the most of it; for the look, any Spider-Man skin.
@@ -120,7 +121,7 @@ cd ../horizon
 ```
 
 On that build R and Z are in Options › Controls › Key Binds under "Spider-Man", and Options › Mods › Spider-Man ›
-Settings has the web delay and the jump.
+Settings has the web delay.
 
 ## How it works
 

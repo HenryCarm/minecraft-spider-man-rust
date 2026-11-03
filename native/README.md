@@ -34,7 +34,7 @@ bounded, and a panic in the mod skips its tick (it starts over) instead of crash
 - No wall-as-floor roll in the shipped bundle: the turned view needs state shared between Horizon's game and
   its library crate, which a native bundle can't add. The dev build has it.
 - While posed, the player model is drawn without armour, the held item or elytra.
-- Keys are fixed (R web, Z zip), no Controls rows; no settings page yet (`/swingmode delay|jump` set the same
+- Keys are fixed (R web, Z zip), no Controls rows; no settings page yet (`/swingmode delay` sets the same
   things); the help shows in chat, not a HUD panel. The settings file is `mod-storage/spider-man/` in the game's
   folder.
 
@@ -57,7 +57,7 @@ rights, so read `mixins/spider-man/` before building it. Tested on macOS with la
    The first build downloads the launcher's Rust and Horizon v0.2.96's source and takes a few minutes; it
    installs as a `native-…` version for the "Native mods" instance, away from your other worlds.
 4. In the launcher pick the "Native mods" instance and press Play (a Microsoft account that owns Minecraft:
-   Java Edition). Press F5 for third person, hold R.
+   Java Edition). Press F5 for third person, hold R and jump.
 
 ## Build the shipped mod from source
 

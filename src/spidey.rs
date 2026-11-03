@@ -72,6 +72,14 @@ const ROOF_KEEP: f64 = 0.85;
 const ROOF_TICKS: u32 = 30;
 const ROOF_HOP: f64 = 0.55;
 const ROOF_LEAP_UP: f64 = 0.75;
+/// The parkour run on the ground (R and W held): its top speed (blocks a
+/// tick; with the game's own push from W about 12 m/s, against its 5.6
+/// sprint), the speed added a tick on
+/// the way there, how far A/D lean it, and a jump's lift.
+const RUN_SPEED: f64 = 0.5;
+const RUN_ACCEL: f64 = 0.03;
+const RUN_SIDE: f64 = 0.5;
+const RUN_JUMP: f64 = 0.42;
 /// Ground parkour: heights (blocks over the feet) that split the moves —
 /// below `VAULT_MIN` the game's own step-up, above `VAULT_WALL` a building
 /// (the wall needs R, decision 18); an obstacle this long is landed on and
@@ -138,7 +146,7 @@ struct Web {
     held: u32,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 enum Phase {
     Ground,
     Air,
@@ -242,11 +250,23 @@ const STRIDE_MAX_STEP: f32 = 0.95;
 const WALL_KICK: f64 = 0.7;
 const WALL_KICK_UP: f64 = 0.45;
 const LEDGE_OVER: f64 = 0.45;
+/// Climbing into an overhang (a ledge or a slab over the head while the wall
+/// goes on, or a terrace floor jutting out under the roof): this many ticks
+/// pressed up against it, then out from the wall for `OVERHANG_OUT_TICKS` at
+/// `OVERHANG_OUT` a tick, level (past a lip up to ~2 blocks deep; NYC's tower
+/// terrace at -641 93 -88 is 2), then up past it and back in over it.
+const OVERHANG_TICKS: u32 = 4;
+const OVERHANG_OUT_TICKS: u32 = 10;
+const OVERHANG_OUT: f64 = 0.3;
+const OVERHANG_UP: f64 = 0.85;
+const OVERHANG_REATTACH: u32 = 15;
 const LEDGE_UP: f64 = 0.55;
 
-/// The jump into a swing from the ground: up and forward.
-const JUMP_UP: f64 = 0.6;
-const JUMP_FORWARD: f64 = 0.25;
+/// R held from the ground fires the web once off it: on a jump, or with
+/// more than this many blocks below the feet (a curb or a hop is less).
+const ARM_DROP: f64 = 2.5;
+/// A web shot within this many blocks of the ground gets the low arc.
+const GROUND_ARC: f64 = 3.0;
 /// When a web shot from the ground bites: a pull along it.
 const GROUND_TUG: f64 = 0.7;
 /// From the ground: the arc's bottom this far above the chest (a negative
@@ -255,8 +275,6 @@ const GROUND_DROP: f64 = -1.5;
 const GROUND_TUG_MAX: f64 = 0.8;
 
 pub struct Spidey {
-    /// Jump into a swing when R is pressed on the ground.
-    pub jump_start: bool,
     /// How long a web or a zip line flies before it bites, as a share of
     /// its natural flight (`/swingmode delay`): 1 = the reference's 6–8
     /// frames, 0 = it bites on the next tick. Default half: Spider-Man 2
@@ -266,12 +284,18 @@ pub struct Spidey {
     pub impact: f64,
     cam_wall: Option<P>,
     cam_blend: f32,
+    /// This stay on the wall turns the camera (decided as you land on it).
+    cam_long: Option<bool>,
     /// A phase whose pose is held for checking (`/swingmode pose`).
     debug: Option<Phase>,
     ground_start: bool,
     web: Option<Web>,
     zip: Option<P>,
     r_held: bool,
+    /// R held from the ground: the web goes once you are off it.
+    web_armed: bool,
+    /// Off the ground by a jump (Space), not a step off an edge.
+    jumped: bool,
     z_held: bool,
     phase: Phase,
     /// From the first web until the feet touch the ground: the mod drives.
@@ -285,6 +309,13 @@ pub struct Spidey {
     /// Space last tick on the wall, and the body's turn toward its run.
     wall_space: bool,
     run_twist: f32,
+    /// Ticks the wall run has pushed up against something over the head,
+    /// and the way out from under it: the wall, ticks gone.
+    wall_blocked: u32,
+    overhang: Option<(P, u32)>,
+    /// Ticks after an overhang in which the wall above is caught without R
+    /// (a walk under a balcony must not end in a fall).
+    reattach: u32,
     /// Sprint on the wall: W last tick, the tick of the last W press, latched.
     w_was: bool,
     w_last: u32,
@@ -302,6 +333,8 @@ pub struct Spidey {
     space_was: bool,
     roof_ticks: u32,
     roof_speed: f64,
+    /// The parkour run's speed now (see `ground_run`).
+    run_speed: f64,
     /// The wall run's vertical speed now.
     climb: f64,
     /// The zip hook: ticks until it bites, its whole flight, and ticks since
@@ -324,6 +357,8 @@ pub struct Spidey {
     pub safe: bool,
     /// A vault over an obstacle on the ground, under way.
     vault: Option<Vault>,
+    /// Webs shot so far, for `/swingmode debug`.
+    pub webs: u32,
     /// The last vault picked, for `/swingmode debug`.
     pub vault_note: String,
     /// Ticks a held pose has been easing out on the ground.
@@ -333,16 +368,18 @@ pub struct Spidey {
 impl Default for Spidey {
     fn default() -> Self {
         Spidey {
-            jump_start: true,
             web_delay: 0.5,
             impact: 0.0,
             cam_wall: None,
             cam_blend: 0.0,
+            cam_long: None,
             debug: None,
             ground_start: false,
             web: None,
             zip: None,
             r_held: false,
+            web_armed: false,
+            jumped: false,
             z_held: false,
             phase: Phase::Ground,
             driving: false,
@@ -352,6 +389,9 @@ impl Default for Spidey {
             asked: None,
             climb: 0.0,
             wall_space: false,
+            wall_blocked: 0,
+            overhang: None,
+            reattach: 0,
             run_twist: 0.0,
             w_was: false,
             w_last: 0,
@@ -364,6 +404,7 @@ impl Default for Spidey {
             space_was: false,
             roof_ticks: 0,
             roof_speed: 0.0,
+            run_speed: 0.0,
             zip_flying: 0,
             zip_flight: 0,
             zip_ticks: 0,
@@ -376,6 +417,7 @@ impl Default for Spidey {
             zip_walled: false,
             safe: false,
             vault: None,
+            webs: 0,
             vault_note: String::new(),
             ease_out: 0,
         }
@@ -472,9 +514,10 @@ impl Spidey {
         if !state.on_ground {
             return None;
         }
-        // A block at the feet or knees ahead within ~4 ticks: hop it.
+        // A block at the feet or knees ahead within ~4 ticks: hop it, if R
+        // (the parkour run) is held.
         let near = |i: usize| state.ahead.get(i).copied().flatten().is_some_and(|d| d / speed.max(0.1) < 4.0);
-        if near(1) && !near(3) {
+        if key(state, "KeyR") && near(1) && !near(3) {
             v = v + UP * ROOF_HOP;
         }
         if key(state, "Space") {
@@ -486,6 +529,30 @@ impl Spidey {
             v = v - UP * 0.08;
         }
         Some(v)
+    }
+
+    /// The parkour run: R and W held on the ground, no web, zip or vault.
+    /// The speed is kept here, since the game's friction takes most of it
+    /// off the velocity read back each tick; it builds from the walk to
+    /// `RUN_SPEED` and A/D lean it sideways. Kept over a hop or a curb
+    /// while R and W stay down.
+    fn ground_run(&mut self, state: &Sense, v: P, ahead: P, side: f64) -> Option<P> {
+        let held = self.web.is_none()
+            && self.zip.is_none()
+            && key(state, "KeyR")
+            && key(state, "KeyW")
+            && !key(state, "ShiftLeft");
+        if !held {
+            self.run_speed = 0.0;
+        }
+        if !held || !state.on_ground || self.driving || self.vault.is_some() || ahead.len() < 0.1 {
+            return None;
+        }
+        self.run_speed = (self.run_speed.max(v.flat().len()) + RUN_ACCEL).min(RUN_SPEED);
+        let right = ahead.cross(UP).norm();
+        let mut out = (ahead + right * (side * RUN_SIDE)).norm() * self.run_speed;
+        out.y = if key(state, "Space") { RUN_JUMP } else { v.y };
+        Some(out)
     }
 
     /// Over a low obstacle, under an overhang, from the rays ahead.
@@ -534,10 +601,10 @@ impl Spidey {
         if self.web.is_some() || self.zip.is_some() || !key(state, "KeyW") {
             return;
         }
-        // W held is the intent: walking, running, or pressed against the
-        // face from a stop; sneaking never vaults.
-        // R held is the wall run's (or a web's): no vault then.
-        if key(state, "ShiftLeft") || key(state, "KeyR") || state.profile.is_empty() || look.flat().len() < 0.1 {
+        // R held (PS4's R2) is the parkour run, W the direction: walking,
+        // running, or pressed against the face from a stop. Without R the
+        // ground is vanilla (doors, steps); sneaking never vaults.
+        if !key(state, "KeyR") || key(state, "ShiftLeft") || state.profile.is_empty() || look.flat().len() < 0.1 {
             return;
         }
         let v = P::of(&state.velocity);
@@ -740,6 +807,20 @@ impl Spidey {
             return None;
         }
         let wall = state.wall.as_ref().map(P::of);
+        let reattach = self.reattach > 0;
+        self.reattach = self.reattach.saturating_sub(1);
+        // Out from under an overhang, level, then up past its lip; the wall
+        // run catches the wall above it on its own.
+        if let Some((w, t)) = self.overhang {
+            if t < OVERHANG_OUT_TICKS {
+                self.overhang = Some((w, t + 1));
+                // Level: what gravity takes off is given back.
+                return Some(w * -OVERHANG_OUT + UP * web::FALL);
+            }
+            self.overhang = None;
+            self.reattach = OVERHANG_REATTACH;
+            return Some(w * (OVERHANG_OUT * 0.3) + UP * OVERHANG_UP);
+        }
         if let Phase::Slap(w, t) = self.phase {
             self.r_held = key(state, "KeyR");
             if t >= SLAP_STICK + SLAP_SLIDE || wall.is_none() {
@@ -764,11 +845,24 @@ impl Spidey {
                     return Some(w * -WALL_KICK + UP * WALL_KICK_UP);
                 }
                 let along = w.cross(UP).norm();
+                // Up against an overhang: the run asks up, the move made
+                // (`v`, the chest's step) gives nothing; out around its lip
+                // and on up the wall above.
+                if self.wall_vel.y > 0.1 && v.y < 0.02 {
+                    self.wall_blocked += 1;
+                } else {
+                    self.wall_blocked = 0;
+                }
+                if self.wall_blocked >= OVERHANG_TICKS {
+                    self.wall_blocked = 0;
+                    self.overhang = Some((w, 0));
+                    self.phase = Phase::Flip(0);
+                }
                 // On the wall WASD walk it as a floor (Web of Shadows): W up,
-                // S down, A/D along; R held runs, faster, and runs up with no
-                // key; nothing held clings.
-                // Running is Minecraft's sprint: Ctrl, or W pressed twice
-                // quickly (held after the second press). R stays off the wall.
+                // S down, A/D along; nothing held clings. R held runs, as on
+                // the ground (PS4's R2): faster, and up with no key; letting
+                // go walks again, only Space leaves the wall. Minecraft's
+                // sprint runs too: Ctrl, or W pressed twice quickly.
                 let w_down = key(state, "KeyW");
                 if w_down && !self.w_was {
                     if self.ticks - self.w_last <= SPRINT_TAP {
@@ -780,14 +874,20 @@ impl Spidey {
                     self.sprint = false;
                 }
                 self.w_was = w_down;
-                let running = key(state, "ControlLeft") || self.sprint;
                 self.r_held = key(state, "KeyR");
-                // WASD follow the camera (Web of Shadows): forward is the
-                // view laid flat on the wall, right is across it. Looking
-                // straight at the wall, forward is up it.
+                let running = self.r_held || key(state, "ControlLeft") || self.sprint;
+                // On a wall the camera turned onto (a tall one, in a build
+                // that turns the view), the keys follow the view
+                // laid on the wall (its pitch is kept off the wall's normal,
+                // so this never degenerates): look down it and W goes down.
+                // Upright on a low wall they go by the wall, as Catlike
+                // Coding's climbing: W up, S down, D to the right of someone
+                // facing it, A to the left; a view into the wall can't flip
+                // them.
                 let n = w * -1.0;
                 let flat_look = look - n * look.dot(n);
-                let ahead_w = if flat_look.len() > 0.3 { flat_look.norm() } else { UP };
+                let turned = self.cam_long == Some(true) && horizon_mod_sdk::motion::WALL_TURN;
+                let ahead_w = if turned && flat_look.len() > 0.3 { flat_look.norm() } else { UP };
                 let right_w = ahead_w.cross(n).norm();
                 let fwd = axis(state, "KeyW") - axis(state, "KeyS");
                 let mut dir = ahead_w * fwd + right_w * side;
@@ -830,7 +930,7 @@ impl Spidey {
         // must stay a jump).
         let starts = !state.on_ground
             && self.driving
-            && key(state, "KeyR")
+            && (key(state, "KeyR") || reattach)
             && self.zip.is_none()
             && look.flat().norm().dot(w) > 0.4
             && (v.dot(w) > 0.05 || key(state, "KeyW"));
@@ -842,6 +942,8 @@ impl Spidey {
         self.safe = true;
         self.phase = Phase::WallRun(w);
         self.r_held = true;
+        self.reattach = 0;
+        self.wall_blocked = 0;
         // A Space held into the run is not a kick.
         self.wall_space = key(state, "Space");
         self.run_twist = 0.0;
@@ -880,11 +982,23 @@ fn angle_step(from: f32, to: f32, k: f32) -> f32 {
 
 impl Spidey {
     /// The wall the camera turns onto during a long run, and how far it has
-    /// turned (0..1).
+    /// turned (0..1). Whether it turns is decided once, as you land on the
+    /// wall (Web of Shadows: a tall wall turns it, a low one doesn't), and
+    /// held until you leave it: the wall above changing on the way up (a
+    /// window ledge, the last floors) never turns it back and forth.
     pub fn wall_camera(&mut self, state: &Sense) -> (Option<P>, f32) {
+        // Out from under an overhang is still on the wall.
+        let on_wall = matches!(self.phase, Phase::WallRun(_))
+            || ((self.overhang.is_some() || self.reattach > 0) && self.cam_long.is_some());
+        if !on_wall {
+            self.cam_long = None;
+        } else if self.cam_long.is_none() {
+            self.cam_long = Some(state.wall_above >= LONG_WALL);
+        }
         let long = match self.phase {
-            Phase::WallRun(w) if state.wall_above >= LONG_WALL => Some(w),
-            _ => None,
+            _ if self.cam_long != Some(true) => None,
+            Phase::WallRun(w) => Some(w),
+            _ => self.cam_wall,
         };
         if let Some(w) = long {
             self.cam_wall = Some(w);
@@ -894,14 +1008,26 @@ impl Spidey {
         if self.cam_blend <= 0.0 {
             self.cam_wall = None;
         }
-        // Eased in and out.
-        let x = self.cam_blend;
-        (self.cam_wall, x * x * (3.0 - 2.0 * x))
+        // The camera eases the turn itself (at a capped speed); it gets
+        // the decision.
+        (self.cam_wall, target)
     }
 
     /// Parts the mod still poses (0: the game's own animation).
     pub fn posed(&self) -> usize {
         self.shown.len()
+    }
+
+    /// The movement state for `/swingmode debug`.
+    pub fn note(&self) -> String {
+        format!(
+            "{:?} vault {} wall_vel {:.2} blocked {} driving {}",
+            self.phase,
+            self.vault.is_some(),
+            self.wall_vel.y,
+            self.wall_blocked,
+            self.driving
+        )
     }
 
     pub fn wall_running(&self) -> bool {
@@ -913,9 +1039,8 @@ impl Spidey {
 
     pub fn reset(&mut self) {
         // The settings survive a reset; the rest starts over.
-        let (jump_start, web_delay) = (self.jump_start, self.web_delay);
+        let web_delay = self.web_delay;
         *self = Spidey::default();
-        self.jump_start = jump_start;
         self.web_delay = web_delay;
         motion::clear_pose();
     }
@@ -944,12 +1069,38 @@ impl Spidey {
         let look = P::of(&state.look);
         let ahead = look.flat().norm();
         let side = axis(state, "KeyD") - axis(state, "KeyA");
-        // R: shoot on press, let go on release.
+        // R (PS4's R2): in the air it shoots, let go on release; on the
+        // ground it is the parkour run and shoots nothing. Held from the
+        // ground, the web goes once you are off it: a jump, or off an edge
+        // with a real drop below and falling (not a curb, a hop, a vault
+        // or a ladder climbed).
         let r = key(state, "KeyR");
         // No web from a wall: R there was firing one at once (playtest).
         let on_wall = matches!(self.phase, Phase::WallRun(_) | Phase::Slap(..));
-        if r && !self.r_held && !on_wall {
+        let pressed = r && !self.r_held;
+        // A vault disarms: one cut short in the air must not fire a web.
+        if self.vault.is_some() {
+            self.web_armed = false;
+        }
+        self.web_armed = r && !on_wall && (self.web_armed || pressed || state.on_ground);
+        // A jump: Space on the ground this tick or the last (a quick tap can
+        // be up before the feet leave it); kept while in the air.
+        if state.on_ground {
+            self.jumped = key(state, "Space") || self.space_was;
+        }
+        let drop = state.floor.map_or(f64::INFINITY, |f| chest.y - super::CHEST - f);
+        let off = !state.on_ground
+            && self.vault.is_none()
+            && !matches!(self.phase, Phase::Vault(..))
+            && self.web.is_none()
+            && self.zip.is_none()
+            && (self.jumped || (drop > ARM_DROP && state.velocity.y < 0.0));
+        let fire = !state.on_ground && !on_wall && ((pressed && self.vault.is_none()) || (self.web_armed && off));
+        if fire {
+            // Nothing in reach: still armed, tried again next tick.
             if let Some(anchor) = pick_anchor(state, chest, side) {
+                self.web_armed = false;
+                self.webs += 1;
                 let length = (anchor - chest).len();
                 let flight = flight_ticks((length / WEB_SPEED).clamp(2.0, MAX_FLIGHT), self.web_delay);
                 // Swing down the middle of the street (PS4: the arc is bent to
@@ -976,10 +1127,9 @@ impl Spidey {
                 });
                 self.zip = None;
                 self.driving = true;
-                // On the ground: jump into the swing (PS4's start of a swing,
-                // as on PS4; `/swingmode jump off` turns it off).
-                if state.on_ground && self.jump_start {
-                    v = v.flat() + ahead * JUMP_FORWARD + UP * JUMP_UP;
+                // Just off the ground: a low arc that lifts you (PS4: the web
+                // is shorter near the ground).
+                if drop < GROUND_ARC {
                     self.ground_start = true;
                 }
             }
@@ -1184,9 +1334,6 @@ impl Spidey {
                     v = v + (w.pivot - chest).norm() * GROUND_TUG;
                     self.ground_start = false;
                 }
-                if w.flying == 0 && state.on_ground && !self.jump_start {
-                    v = v + v.flat().norm() * web::ATTACH_KICK + UP * 0.3;
-                }
                 v = v * web::DAMP - UP * web::FALL;
             } else {
                 if w.length > w.target {
@@ -1274,6 +1421,9 @@ impl Spidey {
         }
         if state.on_ground && self.web.is_none() && self.zip.is_none() {
             self.safe = false;
+        }
+        if let Some(run) = self.ground_run(state, v, ahead, side) {
+            return Some(run);
         }
         // Parkour in flight (Spider-Man 2 `rQVxkz7azJA` 87–91.5 s: low
         // under an overpass, over and through trees): what is ahead along the
