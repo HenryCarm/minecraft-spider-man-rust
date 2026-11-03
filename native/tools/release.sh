@@ -1,5 +1,5 @@
 #!/bin/zsh
-# The shipped native mod: regenerates native/mixins/spider-man/ from the mod
+# The shipped native mod: regenerates native/mixins/spider_man/ from the mod
 # (src/) and the dev hooks, then stages and builds it on the clean Horizon
 # commit in native/compatibility.json. `--generate-only` skips the build.
 set -e

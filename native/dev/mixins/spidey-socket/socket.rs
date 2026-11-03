@@ -8,11 +8,16 @@
 // the mod that are not finite are dropped, and a panic in it stops the mod for
 // that tick, not the game.
 
-use horizon_dev_reload::abi::{Camera, Input, Player, Pose, Ray, State, Vec3};
+use horizon_dev_reload::abi::{Camera, Input, Player, Pose, Ray, State, UiEvent, Vec3};
 use std::ops::ControlFlow;
 use std::sync::Mutex;
 use std::time::Instant;
 
+/// The mod's id in Options > Mods: its keys' lines and its switch.
+pub const ID: &str = "spider_man";
+/// Its row there.
+const TITLE: &str = "Spider-Man";
+const DESCRIPTION: &str = "Web swinging, zips, wall running and parkour. Hold R and jump; F5 for third person.";
 /// Rays cast a tick; the rest find nothing.
 const RAY_BUDGET: usize = 256;
 /// How far from the player a fixed camera may stand, in blocks.
@@ -233,6 +238,15 @@ fn cast(game: &super::Game<'_>, rays: &[Ray], eye: [f64; 3], feet: [f64; 3]) -> 
 
 /// Every client tick, before the level ticks and the player moves.
 pub fn tick(game: &mut super::Game<'_>) {
+    // Turned off in Options > Mods: the game as if the mod weren't there.
+    if !game.native_on(ID) {
+        shared(|s| {
+            clear(s);
+            s.commands.clear();
+        });
+        wind(game, 0.0);
+        return;
+    }
     let local = local(game);
     let playing = game.screen == super::Screen::Playing;
     let mut input = Input {
@@ -243,6 +257,7 @@ pub fn tick(game: &mut super::Game<'_>) {
             Vec::new()
         },
         commands: shared(|s| std::mem::take(&mut s.commands)),
+        bindings: bindings(game),
         ..Input::default()
     };
     if local
@@ -377,23 +392,104 @@ pub fn after_send_state(game: &mut super::Game<'_>) {
     }
 }
 
-/// The mod's chat commands (`/swingmode …`) go to the mod, not the server,
-/// in the player's own world only. `typed`: from the chat box (kept in its
-/// history); else a line sent another way (the control socket, a clicked
-/// command), which typed chat also passes through on a server.
-pub fn chat_input(game: &mut super::Game<'_>, message: &str, typed: bool) -> ControlFlow<()> {
-    let Some(command) = message.trim().strip_prefix('/') else {
-        return ControlFlow::Continue(());
-    };
+/// The mod's chat commands (`/swingmode …`, typed or clicked, without the
+/// slash) go to the mod, not the server, in the player's own world only;
+/// elsewhere the server gets them as always.
+pub fn command(game: &mut super::Game<'_>, command: &str, ran: &mut bool) {
+    let command = command.trim();
     let (name, args) = command.split_once(' ').unwrap_or((command, ""));
-    if !COMMANDS.contains(&name) || horizon_dev_reload::loads() == 0 || !local(game) {
-        return ControlFlow::Continue(());
-    }
-    if typed {
-        game.ui.chat.add_recent(message);
+    if !COMMANDS.contains(&name) || !game.native_on(ID) || horizon_dev_reload::loads() == 0 || !local(game) {
+        return;
     }
     shared(|s| s.commands.push((name.to_owned(), args.trim().to_owned())));
-    ControlFlow::Break(())
+    *ran = true;
+}
+
+/// The chat box lists, colours and completes the mod's commands.
+pub fn commands(game: &super::Game<'_>, commands: &mut Vec<&'static str>) {
+    if game.native_on(ID) && horizon_dev_reload::loads() > 0 && local(game) {
+        commands.extend(COMMANDS);
+    }
+}
+
+/// The player's key for each of the mod's keys (its page in Options > Mods),
+/// as the physical key `Input::keys` names (`KeyR`, `Tab`, `ArrowUp`), through
+/// the game's own table of key names. A mouse button chosen there has no key:
+/// the mod's key stays unpressed.
+fn bindings(game: &super::Game<'_>) -> Vec<(String, String)> {
+    horizon_dev_reload::current()
+        .keys
+        .iter()
+        .map(|k| {
+            let name = game.native_mod_key(ID, &k.name, &k.default);
+            let key = horizon_client_input::keybinds::key_code(&name).map_or(name, |code| format!("{code:?}"));
+            (k.name.clone(), key)
+        })
+        .collect()
+}
+
+/// The settings page only: the mod starts if it hasn't (its keys and
+/// buttons are known from then on) and takes `ui`, without a tick.
+fn page(game: &super::Game<'_>, ui: Vec<UiEvent>) {
+    let input = Input {
+        tick: game.ticks,
+        bindings: bindings(game),
+        ui,
+        ui_only: true,
+        ..Input::default()
+    };
+    let _ = horizon_dev_reload::tick(&input);
+}
+
+/// The mod's row in Options > Mods, with its keys.
+pub fn listed(game: &super::Game<'_>, mods: &mut Vec<super::native_hooks::NativeMod>) {
+    if horizon_dev_reload::current().keys.is_empty() {
+        page(game, Vec::new());
+    }
+    mods.push(super::native_hooks::NativeMod {
+        id: ID.into(),
+        title: TITLE.into(),
+        description: DESCRIPTION.into(),
+        keys: horizon_dev_reload::current()
+            .keys
+            .into_iter()
+            .map(|k| [k.name, k.label, k.default])
+            .collect(),
+    });
+}
+
+/// The mod's settings page: its buttons, as the mod labels them now.
+pub fn settings(game: &super::Game<'_>, mod_id: &str, buttons: &mut Vec<String>) {
+    if mod_id != ID {
+        return;
+    }
+    page(game, vec![UiEvent::Opened]);
+    buttons.extend(horizon_dev_reload::current().settings.into_iter().map(|b| b.label));
+}
+
+/// A click on the page's `button`-th button: the mod changes and keeps the
+/// setting, and the page asks for the new labels right after.
+pub fn settings_click(game: &super::Game<'_>, mod_id: &str, button: usize) {
+    if mod_id != ID {
+        return;
+    }
+    if let Some(b) = horizon_dev_reload::current().settings.get(button) {
+        page(game, vec![UiEvent::Select(b.id)]);
+    }
+}
+
+/// The mod's camera shake, added to the other mods' (Horizon scales the sum
+/// by Distortion Effects and bounds it).
+pub fn camera_shake(game: &super::Game<'_>, shake: &mut super::native_hooks::NativeShake) {
+    // Only on the mod's chase camera, as the rumble always was: not in first
+    // person nor on a fixed view.
+    let chase = shared(|s| matches!(s.camera, Some(Camera::Chase(_))));
+    if !chase || game.camera_type.first_person() || !game.native_on(ID) || !local(game) {
+        return;
+    }
+    let (yaw, pitch) = shake_offset();
+    shake.yaw += yaw;
+    shake.pitch += pitch;
 }
 
 /// Ropes: a thin strip from the hand (or where the rope says), both faces,
@@ -405,7 +501,7 @@ pub fn rope_geometry(
     out: &mut Vec<horizon_client::mesher::Vertex>,
 ) {
     let ropes = horizon_dev_reload::current().ropes;
-    let Some(p) = game.player.as_ref().filter(|_| !ropes.is_empty() && local(game)) else {
+    let Some(p) = game.player.as_ref().filter(|_| !ropes.is_empty() && game.native_on(ID) && local(game)) else {
         return;
     };
     let white = game.gui.atlas.font.white();
@@ -522,6 +618,7 @@ pub fn player_model(
             .iter()
             .any(|id| game.potions.effects.get(*id).is_some())
         || game.player.as_ref().is_none_or(|p| p.health.dead_or_dying())
+        || !game.native_on(ID)
         || !local(game)
     {
         return ControlFlow::Continue(());
@@ -577,7 +674,7 @@ pub fn player_model(
         .gui
         .atlas
         .sprites
-        .get(texture.as_str())
+        .get(&texture[..])
         .map(|r| [r.u0, r.v0, r.u1, r.v1])
     else {
         return ControlFlow::Continue(());
@@ -618,10 +715,8 @@ fn wall_turn(_game: &super::Game<'_>) -> glam::DQuat {
 /// carries a heading over): it goes into the mouse yaw and the alignment is
 /// identity again, so the game's own angles are the view.
 fn update_align(game: &mut super::Game<'_>, wall: Option<glam::DVec3>, dt: f64) -> glam::DQuat {
-    // Without the whole-view turn (a shipped mod can't set it), the view is
-    // not turned either: half a turn would unhinge the mouse and the aim.
     let to_up = match wall {
-        Some(w) if horizon_dev_reload::frame::WALL_TURN && !game.camera_type.first_person() => -w,
+        Some(w) if !game.camera_type.first_person() => -w,
         _ => glam::DVec3::Y,
     };
     let (align, twist) = shared(|s| {
@@ -747,7 +842,7 @@ pub fn camera_view(
     game: &mut super::Game<'_>,
     partial: f32,
 ) -> ControlFlow<Option<(glam::DVec3, f32, f32)>> {
-    horizon_dev_reload::frame::set_view_turn(None);
+    horizon_client_render::camera::spider_man_view::set(None);
     let look_from = |from: glam::DVec3, to: glam::DVec3| {
         let d = (to - from).normalize_or_zero();
         let yaw = (-d.x).atan2(d.z).to_degrees() as f32;
@@ -761,7 +856,6 @@ pub fn camera_view(
     let Some(p) = game.player.as_ref() else {
         return ControlFlow::Continue(());
     };
-    let (shake_yaw, shake_pitch) = shake_offset();
     match camera {
         Camera::Fixed(f) => {
             drop_align();
@@ -800,7 +894,7 @@ pub fn camera_view(
                 return ControlFlow::Continue(());
             };
             let turned = turn.angle_between(glam::DQuat::IDENTITY) > 1e-4;
-            let (yaw, pitch) = (game.yaw + shake_yaw, game.pitch + shake_pitch);
+            let (yaw, pitch) = (game.yaw, game.pitch);
             let rotation = turn * orbit(yaw, pitch);
             let look = rotation * glam::DVec3::Z;
             let up = turn * glam::DVec3::Y;
@@ -871,8 +965,13 @@ pub fn camera_view(
                     (rotation * glam::DVec3::Y).as_vec3(),
                     (-look).as_vec3(),
                 );
-                horizon_dev_reload::frame::set_view_turn(Some(glam::Quat::from_mat3(&basis).to_array()));
-                look_from(at, at + look)
+                // The game builds every view of this frame (the world, its
+                // culling, the sky, reflections) from these angles; the
+                // render crate's `view_matrix` gives the turned view for them.
+                let (at, yaw, pitch) = look_from(at, at + look);
+                let q = glam::Quat::from_mat3(&basis);
+                horizon_client_render::camera::spider_man_view::set(q.is_finite().then(|| (yaw, pitch, q.to_array())));
+                (at, yaw, pitch)
             } else {
                 (at, yaw, pitch)
             };

@@ -3,7 +3,7 @@
 The development setup runs the mod as a library the game reloads (the socket,
 horizon-dev-reload, which only our Horizon dev branch has). A shipped native
 mod builds on a clean Horizon, and horizon-mixins takes one self-contained
-module per bundle. So this writes `<out>/mixins/spider-man/`:
+module per bundle. So this writes `<out>/mixins/spider_man/`:
 
   spider_man.rs        the game-side hooks' module, with inline modules for the
                        ABI (`horizon_dev_reload`, now calling the mod in-process),
@@ -25,10 +25,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 MODULE = "spider_man"
-BUNDLE = "spider-man"
+BUNDLE = "spider_man"
 BASE = f"crate::game::{MODULE}"
-# Development-only hooks: they need a crate both the game and its library see.
-DEV_ONLY_INJECTIONS = {"turned-view"}
+# Development-only hooks (none since the game moved into Horizon's library crate).
+DEV_ONLY_INJECTIONS: set[str] = set()
 
 
 def strip_dev_only(text):
@@ -86,6 +86,8 @@ def abi_module():
         camera: None,
         wind: 0.0,
         panel: None,
+        keys: Vec::new(),
+        settings: Vec::new(),
     }});
 
     /// One tick of the mod; None if it panicked (it then starts over and the
@@ -123,15 +125,8 @@ def abi_module():
         1
     }}
 
-    /// A shipped mod keeps the game's own upright view.
-    pub const WALL_TURN: bool = false;
-
-    /// The wall camera's whole-view turn needs a crate both the game and its
-    /// library see; a shipped mod keeps the game's own view.
-    pub mod frame {{
-        pub const WALL_TURN: bool = false;
-        pub fn set_view_turn(_q: Option<[f32; 4]>) {{}}
-    }}
+    /// The wall camera turns the whole view (the game's view matrix reads it).
+    pub const WALL_TURN: bool = true;
 }}
 """
 
@@ -226,6 +221,9 @@ def main():
     (out / f"{MODULE}.rs").write_text(module)
     manifest_text = manifest(dev / "horizon-mixin.toml", args.horizon_revision)
     (out / "horizon-mixin.toml").write_text(manifest_text)
+    # Other modules' sources (the view turn, kept in Horizon's render crate) go as they are.
+    for source in sorted(set(re.findall(r'^source = "([\w.]+)"$', manifest_text, flags=re.M)) - {f"{MODULE}.rs"}):
+        shutil.copy(dev / source, out / source)
     for helper in sorted(set(re.findall(r'^helper = "([\w.]+)"$', manifest_text, flags=re.M))):
         text = (dev / helper).read_text().replace("crate::game::spidey_socket::", f"{BASE}::")
         (out / helper).write_text(text)

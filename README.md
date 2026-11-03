@@ -11,24 +11,21 @@ Not affiliated with Marvel, Sony Interactive Entertainment, Insomniac Games, Moj
 
 ## Play it
 
-You need the Horizon launcher **0.2.23 or later** and a Microsoft account that owns Minecraft: Java Edition.
-Tested on macOS.
+You need the [Horizon launcher](https://github.com/horizon-rust/horizon) (0.2.31 or later) and a Microsoft account
+that owns Minecraft: Java Edition.
 
-```sh
-horizon-launcher update        # then restart the launcher
-horizon-launcher prepare       # the game's resources, from your Minecraft install
-git clone https://github.com/wyddy7/minecraft-spider-man-rust
-horizon-launcher native-build minecraft-spider-man-rust/native/mixins/spider-man --trust-native-code
-```
+1. In the launcher open **Mods**, search **Spider-Man** and press **Install**. Until the registry lists it, use
+   **Add from GitHub** on the same page with this repository's link instead:
+   `https://github.com/wyddy7/minecraft-spider-man-rust` (or `horizon-launcher mods add-github <link>
+   --trust-native-code`).
+2. The launcher builds the mod into the game. The first build downloads the launcher's own Rust and Horizon's
+   source, then compiles: a few minutes.
+3. Press Play, press **F5** for third person, find something tall, hold **R** and jump.
 
-The first build downloads the launcher's own Rust (about 450 MB, once) and Horizon's source, then compiles
-the game: on an Apple M5 it took under 5 minutes, about 3 GB of disk in all. It becomes the **Native mods**
-instance in the launcher: pick it, press Play, press **F5** for third person, find something tall, hold **R** and jump.
-
-Native mods are experimental in Horizon and **not sandboxed**: the code runs with your rights, which is why the
-launcher asks for `--trust-native-code`. The whole mod is in [`native/mixins/spider-man/`](native/mixins/spider-man/);
-read it first. The mod is made for Horizon v0.2.96, and the launcher builds exactly that version from source,
-whatever version you play otherwise, in an instance of its own. More in
+Native mods are **not sandboxed**: the code runs with your rights, which is why the launcher asks you to trust it.
+The whole mod is in [`native/mixins/spider_man/`](native/mixins/spider_man/); read it first. It is made for one
+Horizon Nightly (pinned in [`native/compatibility.json`](native/compatibility.json)), and the launcher builds exactly
+that version, in an instance of its own. Tested on macOS and Windows 11. More in
 [native/README.md](native/README.md#install-with-the-horizon-launcher).
 
 ## Controls
@@ -46,19 +43,17 @@ whatever version you play otherwise, in an instance of its own. More in
 A chase camera follows the swing and shakes at speed; the wind gets louder the faster you go. Falls from a swing
 don't hurt.
 
-Chat: `/swingmode on|off` switches the mod; `delay 0..2` (how long a web flies before it bites, 0.5 by default) is its
-setting, kept between games; `view side|front|back|off` gives a fixed camera for looking at the poses; `debug` prints
-what the mod sees.
+R and Z can be changed, and the web delay set (how long a web flies before it bites), on the mod's page:
+Options > Mods > Spider-Man > Settings. The same page turns the mod off. Chat: `/swingmode on|off`, `delay 0..2`,
+`view side|front|back|off` (a fixed camera for looking at the poses) and `debug` (what the mod sees).
 
 It plays in single player and in a LAN world you host. On someone else's server it does nothing: it only moves the
 player where the server is yours. A city map makes the most of it; for the look, any Spider-Man skin.
 
 ## Status
 
-0.2.0 in progress. The native build has everything above. Not yet: rebinding R and Z (keys are fixed), a settings
-page in Options (the chat settings stand in), and the wall-as-floor camera roll on tall walls, which a native mod
-can't do on Horizon yet (it stays in the development build). Multiplayer on servers is the plan, the way movement
-mods do it: the server runs the mod too and lets its players swing.
+0.2.0: the native build has everything above, on Horizon's Nightly of 2026-11-03. Multiplayer on servers is the
+plan, the way movement mods do it: the server runs the mod too and lets its players swing.
 
 ## For mod authors
 
@@ -78,9 +73,11 @@ that goes past the template's one hook; things it shows that aren't written down
   `?`, no RETURN in one with a closure) rule out many of the game's obvious functions, the level tick and the
   model animation among them. [native/README.md](native/README.md#hooks) lists the Horizon functions this mod
   hooks and what each hook does.
-- **What `pub(crate)` modules mean in practice.** A bundle's module lives in one crate, so the game's binary and its
-  library can't share a mod's state: anything drawn inside the library (the camera's view matrix, say) can't follow
-  a mod's per-tick choice.
+- **Turning the whole view.** The view matrix is built in Horizon's render crate, which the game's library
+  depends on. A bundle can add a `pub` module to a library file there (`horizon-client-render/src/camera.rs`) and
+  a cancellable HEAD on `view_matrix`: the game side stores the frame's yaw, pitch and turned orientation, and the
+  hook returns the turned view for exactly those angles, so the world, its culling, the sky and reflections turn
+  together while previews and other cameras stay as they are.
 - **Your own world, not someone else's server.** Checking the connection's address isn't enough; the mod also
   requires the game's own server thread to be running.
 - **A panic in the mod's logic doesn't take the game down**, and doesn't set off Horizon's crash reporter (the
@@ -88,11 +85,10 @@ that goes past the template's one hook; things it shows that aren't written down
 - **Sound.** Horizon updates a playing sound's volume only for ticking sounds: a loop whose loudness follows speed
   has to be one.
 
-Horizon's Nightly also has stable hook points for native mods (`native_hooks.rs`: tick, frame, keys, wheel,
-commands, HUD, zoom, minimap, a mod's Options page), and its own native mods are built on them: a mod using only
-those builds on any later Horizon without re-pinning. No tagged release has them yet (v0.2.97 included), and this
-mod is made for v0.2.96; once a release does, its keys, commands and settings page move onto them. Movement,
-camera and drawing in the world still need their own hooks.
+Horizon's stable hook points for native mods (`native_hooks.rs`) carry what they can: the chat commands, the mod's
+row and settings page in Options > Mods with its rebindable keys, the on/off switch and the camera shake. Movement,
+the camera, the fall and drawing in the world have no hook point, so they are the mod's own hooks, and the mod pins
+one Horizon commit.
 
 How to build both bundles, the development loop and the hook list: [native/README.md](native/README.md).
 

@@ -1,10 +1,17 @@
 [mod]
 id = "spidey-socket"
-version = "0.1.0"
+version = "0.2.0"
 priority = 100
 
 [compatibility]
-horizon_revision = "f1d4c8fd29bcb4149fc409f5170b63233a205bc8"
+horizon_revision = "0722c1055d0af6756dd0eeb8d7880747008d633f"
+
+[[module]]
+id = "view-turn"
+file = "crates/horizon-client-render/src/camera.rs"
+name = "spider_man_view"
+source = "view_turn.rs"
+visibility = "pub"
 
 [[module]]
 id = "socket"
@@ -34,17 +41,6 @@ helper = "send_state_end.rs"
 bindings = [
   { name = "value", ty = "()", value = "$value" },
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-]
-
-[[injection]]
-id = "plug-command"
-kind = "HEAD"
-cancellable = true
-target = "horizon_client::game::chat::Game<'_>::handle_chat_input"
-helper = "chat.rs"
-bindings = [
-  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "message", ty = "&str", value = "message" },
 ]
 
 [[injection]]
@@ -87,17 +83,74 @@ bindings = [
 id = "turned-view"
 kind = "HEAD"
 cancellable = true
-target = "horizon_client::camera::view_matrix"
+target = "horizon_client_render::camera::view_matrix"
 helper = "view.rs"
-bindings = []
+bindings = [
+  { name = "yaw", ty = "f32", value = "yaw" },
+  { name = "pitch", ty = "f32", value = "pitch" },
+]
 
+# Horizon's native hook points (stable across releases): commands, the mod's
+# row and settings page in Options > Mods, its keys, the camera shake.
 [[injection]]
-id = "plug-command-sent"
+id = "command"
 kind = "HEAD"
-cancellable = true
-target = "horizon_client::game::remote::Game<'_>::send_chat"
-helper = "chat_sent.rs"
+target = "horizon_client::game::native_hooks::Game<'_>::native_command"
+helper = "command.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "message", ty = "&str", value = "message" },
+  { name = "command", ty = "&str", value = "command" },
+  { name = "ran", ty = "&mut bool", value = "&mut *ran" },
+]
+
+[[injection]]
+id = "commands"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_commands"
+helper = "commands.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "commands", ty = "&mut Vec<&'static str>", value = "&mut *commands" },
+]
+
+[[injection]]
+id = "listed"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_mods"
+helper = "listed.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "mods", ty = "&mut Vec<crate::game::native_hooks::NativeMod>", value = "&mut *mods" },
+]
+
+[[injection]]
+id = "settings"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_settings"
+helper = "settings.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "mod_id", ty = "&str", value = "mod_id" },
+  { name = "buttons", ty = "&mut Vec<String>", value = "&mut *buttons" },
+]
+
+[[injection]]
+id = "settings-click"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_settings_click"
+helper = "settings_click.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "mod_id", ty = "&str", value = "mod_id" },
+  { name = "button", ty = "usize", value = "button" },
+]
+
+[[injection]]
+id = "camera-shake"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_camera_shake"
+helper = "shake.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "self" },
+  { name = "shake", ty = "&mut crate::game::native_hooks::NativeShake", value = "&mut *shake" },
 ]
