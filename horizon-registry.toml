@@ -17,6 +17,10 @@ in chat does the same and more.
 
 Works in your own worlds: single player, or a LAN world you host. On other servers it stays off.
 
+What it changes in the game: the player's velocity and fall while swinging (own world only), the third-person camera
+and player pose, web lines drawn in the world, and the view's turn while running on a wall. It reads no files outside
+its settings and sends nothing over the network.
+
 Fan-made, not affiliated with Marvel, Sony or Insomniac Games."""
 authors = ["wyddy7"]
 license = "MIT"
