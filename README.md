@@ -73,10 +73,11 @@ that goes past the template's one hook; things it shows that aren't written down
   `?`, no RETURN in one with a closure) rule out many of the game's obvious functions, the level tick and the
   model animation among them. [native/README.md](native/README.md#hooks) lists the Horizon functions this mod
   hooks and what each hook does.
-- **Turning the whole view.** The view matrix is built in Horizon's render crate, which a bundle's module can't
-  reach; the frame is drawn as `projection * (bob * spin) * view`, and `spin` is the game's. A RETURN hook on
-  `spinning_matrix` multiplies in the turn from the game's upright view to the mod's, so the drawn world and the
-  terrain's culling follow the wall camera.
+- **Turning the whole view.** The view matrix is built in Horizon's render crate, which the game's library
+  depends on. A bundle can add a `pub` module to a library file there (`horizon-client-render/src/camera.rs`) and
+  a cancellable HEAD on `view_matrix`: the game side stores the frame's yaw, pitch and turned orientation, and the
+  hook returns the turned view for exactly those angles, so the world, its culling, the sky and reflections turn
+  together while previews and other cameras stay as they are.
 - **Your own world, not someone else's server.** Checking the connection's address isn't enough; the mod also
   requires the game's own server thread to be running.
 - **A panic in the mod's logic doesn't take the game down**, and doesn't set off Horizon's crash reporter (the

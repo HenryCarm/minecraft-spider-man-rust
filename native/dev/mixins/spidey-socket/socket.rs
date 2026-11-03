@@ -407,7 +407,7 @@ pub fn command(game: &mut super::Game<'_>, command: &str, ran: &mut bool) {
 
 /// The chat box lists, colours and completes the mod's commands.
 pub fn commands(game: &super::Game<'_>, commands: &mut Vec<&'static str>) {
-    if game.native_on(ID) && local(game) {
+    if game.native_on(ID) && horizon_dev_reload::loads() > 0 && local(game) {
         commands.extend(COMMANDS);
     }
 }

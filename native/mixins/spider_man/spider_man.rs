@@ -411,7 +411,7 @@ pub fn command(game: &mut super::Game<'_>, command: &str, ran: &mut bool) {
 
 /// The chat box lists, colours and completes the mod's commands.
 pub fn commands(game: &super::Game<'_>, commands: &mut Vec<&'static str>) {
-    if game.native_on(ID) && local(game) {
+    if game.native_on(ID) && horizon_dev_reload::loads() > 0 && local(game) {
         commands.extend(COMMANDS);
     }
 }
@@ -1108,8 +1108,9 @@ pub mod horizon_dev_reload {
             pub keys: Vec<String>,
             /// Chat commands for the plug since last tick: name, then the rest.
             pub commands: Vec<(String, String)>,
-            /// The player's key for each of the mod's keys: name, then its vanilla
-            /// name (`key.keyboard.r`), as chosen on the mod's page in Options > Mods.
+            /// The player's key for each of the mod's keys: name, then the physical
+            /// key as `keys` names it (`KeyR`), as chosen on the mod's page in
+            /// Options > Mods; a vanilla name (`key.keyboard.r`) is read too.
             pub bindings: Vec<(String, String)>,
             /// The mod's settings page was opened or one of its buttons clicked.
             pub ui: Vec<UiEvent>,

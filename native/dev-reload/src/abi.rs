@@ -119,8 +119,9 @@ pub struct Input {
     pub keys: Vec<String>,
     /// Chat commands for the plug since last tick: name, then the rest.
     pub commands: Vec<(String, String)>,
-    /// The player's key for each of the mod's keys: name, then its vanilla
-    /// name (`key.keyboard.r`), as chosen on the mod's page in Options > Mods.
+    /// The player's key for each of the mod's keys: name, then the physical
+    /// key as `keys` names it (`KeyR`), as chosen on the mod's page in
+    /// Options > Mods; a vanilla name (`key.keyboard.r`) is read too.
     pub bindings: Vec<(String, String)>,
     /// The mod's settings page was opened or one of its buttons clicked.
     pub ui: Vec<UiEvent>,
