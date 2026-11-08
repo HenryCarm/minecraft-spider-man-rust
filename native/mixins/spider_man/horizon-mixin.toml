@@ -1,10 +1,10 @@
 [mod]
 id = "spider_man"
-version = "0.2.0"
+version = "0.2.1"
 priority = 100
 
 [compatibility]
-horizon_revision = "294448014fba585f8d5d09dd8886f482493b6417"
+horizon_revision = "6475f62f3c834b7489e1816bf47f47ea5eb2b879"
 
 [[module]]
 id = "view-turn"

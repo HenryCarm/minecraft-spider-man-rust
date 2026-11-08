@@ -1,6 +1,15 @@
 # Changelog
 
-## Unreleased (0.2.0)
+## 0.2.1 — 2026-11-08
+
+- Ported to Horizon's Nightly `6475f62f3c834b7489e1816bf47f47ea5eb2b879` (the pin the offline launcher 1.4.0 builds on),
+  from `294448014fba585f8d5d09dd8886f482493b6417` (the Nightly of 2026-11-03). `horizon-mixins` stays `ddd9700`.
+  Every hook target, both injected modules and every engine touchpoint (the Game struct fields, `clip_ray`,
+  `mob_world_base`, `block_collision_boxes`, `mobs::{anim, render}`, the pose system, the sound engine and
+  `native_hooks`) still exists by exact ID with a matching signature, so the bundle's sources are unchanged; only the
+  pin, the version and `native/compatibility.json`'s `game.rs` SHA-256 moved. Verified with `horizon-mixins apply`.
+
+## 0.2.0 — 2026-11-04
 
 - On Horizon's Nightly of 2026-11-03 and horizon-mixins 0.6. The mod id is `spider_man`, as Horizon's registry
   requires, and `native/tools/package.py` makes its `.hnmod`; install it from the launcher's Mods page.
